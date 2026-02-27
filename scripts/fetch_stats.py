@@ -382,29 +382,67 @@ def save_articles_csv(today, articles):
 
     print(f"  → {filepath} に{len(articles)}行書き込み")
 
-
 def save_daily_summary_csv(today, total_pv, total_like, total_comment, article_count, follower_count):
-    """日次サマリーをCSVに保存（同日データは上書き）"""
+    """日次サマリーをスプシ仕様の11項目で保存（前日比も自動計算）"""
     filepath = os.path.join(DATA_DIR, "daily_summary.csv")
-    existing, header = _remove_rows_by_date(filepath, today)
-    if header is None:
-        header = ["date", "article_count", "total_pv", "total_like", "total_comment", "follower_count"]
+    
+    # --- 1. 今日の指標を計算 ---
+    v_per_a = total_pv / article_count if article_count > 0 else 0
+    l_per_a = total_like / article_count if article_count > 0 else 0
+    l_rate = (total_like / total_pv * 100) if total_pv > 0 else 0
+    
+    v_change = l_change = r_change = 0 # 初期値
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(header)
-        for row in existing:
-            writer.writerow(row)
-        writer.writerow([
-            today,
-            article_count,
-            total_pv,
-            total_like,
-            total_comment,
-            follower_count if follower_count is not None else "",
-        ])
+    # --- 2. 前日のデータを読み込んで「前日比」を算出 ---
+    existing_rows = []
+    if os.path.exists(filepath):
+        with open(filepath, mode="r", encoding="utf-8") as f:
+            reader = list(csv.DictReader(f))
+            if reader:
+                last = reader[-1] # 直近の行
+                try:
+                    # カラム名から数値を取り出して計算
+                    p_v = float(last.get("ビュー合計", 0))
+                    p_l = float(last.get("スキ合計", 0))
+                    p_r = float(last.get("スキ率(%)", 0))
+                    
+                    if p_v > 0: v_change = (total_pv - p_v) / p_v * 100
+                    if p_l > 0: l_change = (total_like - p_l) / p_l * 100
+                    if p_r > 0: r_change = (l_rate - p_r) / p_r * 100
+                except (ValueError, TypeError):
+                    pass
+            # 同一日の重複を避けるために既存行をメモリに保持（今日の日付以外）
+            existing_rows = [r for r in reader if r["日付"] != today.replace("-", "/")]
 
-    print(f"  → {filepath} に書き込み")
+    # --- 3. あんたの理想の11項目を定義 ---
+    header = [
+        "日付", "ビュー合計", "スキ合計", "記事数", "ビュー/記事", "スキ/記事", 
+        "スキ率(%)", "ビュー前日比(%)", "スキ前日比(%)", "スキ率前日比(%)", "更新時刻"
+    ]
+    
+    new_row = {
+        "日付": today.replace("-", "/"),
+        "ビュー合計": total_pv,
+        "スキ合計": total_like,
+        "記事数": article_count,
+        "ビュー/記事": v_per_a,
+        "スキ/記事": l_per_a,
+        "スキ率(%)": l_rate,
+        "ビュー前日比(%)": v_change,
+        "スキ前日比(%)": l_change,
+        "スキ率前日比(%)": r_change,
+        "更新時刻": datetime.now(JST).strftime("%H:%M:%S")
+    }
+
+    # --- 4. 書き込み ---
+    with open(filepath, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=header)
+        writer.writeheader()
+        for r in existing_rows:
+            writer.writerow(r)
+        writer.writerow(new_row)
+
+    print(f"  → {filepath} をスプシ仕様（11項目）で更新したで！")
 
 
 def main():
