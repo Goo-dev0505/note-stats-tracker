@@ -2,10 +2,17 @@ import os
 import requests
 import csv
 import datetime
+import sys # これを足す
 
-# GitHub Secretsから自動で読み込まれる設定
+# 環境変数から読み込み
 COOKIE = os.getenv("NOTE_COOKIE")
 USERNAME = os.getenv("NOTE_USERNAME")
+
+# --- 追加：デバッグ用のチェック ---
+if not USERNAME:
+    print("❌ エラー: NOTE_USERNAME が設定されてへんで！GitHubのSecretsを確認してな。")
+    sys.exit(1)
+# ------------------------------
 
 def fetch_note_stats():
     # Noteの公開プロフィールAPIからデータを取得
