@@ -385,52 +385,62 @@ def save_articles_csv(today, articles):
 def save_daily_summary_csv(today, total_pv, total_like, total_comment, article_count, follower_count):
     """日次サマリーをスプシ仕様の11項目で保存（前日比も自動計算）"""
     filepath = os.path.join(DATA_DIR, "daily_summary.csv")
-    
+
     # --- 1. 今日の指標を計算 ---
     v_per_a = total_pv / article_count if article_count > 0 else 0
     l_per_a = total_like / article_count if article_count > 0 else 0
     l_rate = (total_like / total_pv * 100) if total_pv > 0 else 0
-    
-    v_change = l_change = r_change = 0 # 初期値
 
-    # --- 2. 前日のデータを読み込んで「前日比」を算出 ---
+    v_change = l_change = r_change = 0
+
+    header = [
+        "日付", "ビュー合計", "スキ合計", "記事数", "ビュー/記事", "スキ/記事",
+        "スキ率(%)", "ビュー前日比(%)", "スキ前日比(%)", "スキ率前日比(%)", "更新時刻"
+    ]
+    today_slash = today.replace("-", "/")
+
+    # --- 2. 既存ファイルを読み込む ---
     existing_rows = []
     if os.path.exists(filepath):
         with open(filepath, mode="r", encoding="utf-8") as f:
             reader = list(csv.DictReader(f))
-            if reader:
-                last = reader[-1] # 直近の行
+
+        if reader:
+            # ヘッダーが新形式かチェック（「日付」列があるか）
+            first_keys = list(reader[0].keys())
+            has_new_format = "日付" in first_keys
+
+            if has_new_format:
+                # 前日比計算用に直近行を取得
+                last = reader[-1]
                 try:
-                    # カラム名から数値を取り出して計算
                     p_v = float(last.get("ビュー合計", 0))
                     p_l = float(last.get("スキ合計", 0))
                     p_r = float(last.get("スキ率(%)", 0))
-                    
                     if p_v > 0: v_change = (total_pv - p_v) / p_v * 100
                     if p_l > 0: l_change = (total_like - p_l) / p_l * 100
                     if p_r > 0: r_change = (l_rate - p_r) / p_r * 100
                 except (ValueError, TypeError):
                     pass
-            # 同一日の重複を避けるために既存行をメモリに保持（今日の日付以外）
-            existing_rows = [r for r in reader if r["日付"] != today.replace("-", "/")]
+                # 同日行を除いて保持
+                existing_rows = [r for r in reader if r.get("日付") != today_slash]
+            else:
+                # 旧形式（英語ヘッダーなど）はヘッダー不一致のため破棄して作り直す
+                print("  ⚠ daily_summary.csv が旧フォーマットのため新形式に移行します")
+                existing_rows = []
 
-    # --- 3. あんたの理想の11項目を定義 ---
-    header = [
-        "日付", "ビュー合計", "スキ合計", "記事数", "ビュー/記事", "スキ/記事", 
-        "スキ率(%)", "ビュー前日比(%)", "スキ前日比(%)", "スキ率前日比(%)", "更新時刻"
-    ]
-    
+    # --- 3. 新しい行を作成 ---
     new_row = {
-        "日付": today.replace("-", "/"),
+        "日付": today_slash,
         "ビュー合計": total_pv,
         "スキ合計": total_like,
         "記事数": article_count,
-        "ビュー/記事": v_per_a,
-        "スキ/記事": l_per_a,
-        "スキ率(%)": l_rate,
-        "ビュー前日比(%)": v_change,
-        "スキ前日比(%)": l_change,
-        "スキ率前日比(%)": r_change,
+        "ビュー/記事": round(v_per_a, 2),
+        "スキ/記事": round(l_per_a, 2),
+        "スキ率(%)": round(l_rate, 2),
+        "ビュー前日比(%)": round(v_change, 2),
+        "スキ前日比(%)": round(l_change, 2),
+        "スキ率前日比(%)": round(r_change, 2),
         "更新時刻": datetime.now(JST).strftime("%H:%M:%S")
     }
 
@@ -439,7 +449,8 @@ def save_daily_summary_csv(today, total_pv, total_like, total_comment, article_c
         writer = csv.DictWriter(f, fieldnames=header)
         writer.writeheader()
         for r in existing_rows:
-            writer.writerow(r)
+            # 旧行に新ヘッダーにない列があっても無視、ない列は空文字で補完
+            writer.writerow({k: r.get(k, "") for k in header})
         writer.writerow(new_row)
 
     print(f"  → {filepath} をスプシ仕様（11項目）で更新したで！")
